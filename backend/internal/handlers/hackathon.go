@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"hackflow-api/internal/models"
 
@@ -45,8 +46,15 @@ func (h *Handler) GetHackathons(c *gin.Context) {
 		}
 	}
 
-	if hackathons == nil {
-		hackathons = make([]models.Hackathon, 0)
+	// Динамическая проверка статуса для старых записей
+	now := time.Now()
+	for i := range hackathons {
+		if hackathons[i].Deadline != nil && hackathons[i].Deadline.Before(now) {
+			hackathons[i].Status = "DEAD"
+		} else if hackathons[i].Deadline == nil && strings.Contains(hackathons[i].Date, "февраля 2026") {
+			// Временный хак для старых записей, созданных до добавления поля Deadline
+			hackathons[i].Status = "DEAD"
+		}
 	}
 
 	c.JSON(http.StatusOK, hackathons)

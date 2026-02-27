@@ -30,6 +30,7 @@ func main() {
 
 	// 4. Initialize HTTP Handlers with DB Dependency
 	h := handlers.New(db)
+	aiHandler := handlers.NewSearchAIHandler(cfg)
 
 	// 5. Initialize Gin Router
 	if cfg.Env == "production" || cfg.Env == "prod" {
@@ -48,6 +49,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.GET("/hackathons", h.GetHackathons)
+		api.GET("/search", aiHandler.SearchAI)
 	}
 
 	// 6. Start the Server

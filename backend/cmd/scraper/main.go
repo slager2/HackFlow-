@@ -23,6 +23,24 @@ import (
 
 var db *gorm.DB
 
+// AIResponse - промежуточная структура для строгого JSON от ИИ
+type AIResponse struct {
+	Title    string  `json:"title"`
+	DateStr  string  `json:"date_str"`
+	Deadline string  `json:"deadline"`
+	Format   string  `json:"format"`
+	City     *string `json:"city"`
+	AgeLimit string  `json:"ageLimit"`
+	Link     *string `json:"link"`
+	Status   string  `json:"status"`
+}
+
+// ScrapedPost структура для передачи текста и даты публикации
+type ScrapedPost struct {
+	Text        string
+	PublishedAt time.Time
+}
+
 func main() {
 	cfg := config.Load()
 	logger.Setup(cfg.Env)
@@ -56,20 +74,28 @@ func main() {
 }
 
 func runScraper(apiKey string) {
-	channels := []string{"astanahub", "uppertunity", "nuris_nu", "terriconvalley", "bluescreenkz"}
+	channels := []string{"astanahub", "uppertunity", "nuris_nu", "terriconvalley", "bluescreenkz", "kolesa_team", "tce_kz", "hackathons_ru"}
+
+	twoMonthsAgo := time.Now().AddDate(0, -2, 0)
 
 	for _, channel := range channels {
 		slog.Info("Парсинг канала", "channel", channel)
-		msgs, err := scrapeChannel(channel)
+		posts, err := scrapeChannel(channel)
 		if err != nil {
 			slog.Error("Ошибка парсинга", "channel", channel, "error", err)
 			continue
 		}
 
-		slog.Info("Найдено потенциальных хакатонов", "count", len(msgs), "channel", channel)
+		slog.Info("Найдено потенциальных хакатонов", "count", len(posts), "channel", channel)
 
-		for _, msg := range msgs {
-			hackathon := parseWithAI(msg, apiKey)
+		for _, post := range posts {
+			// Игнор старья: пропускаем посты старше 2 месяцев
+			if post.PublishedAt.Before(twoMonthsAgo) {
+				slog.Debug("Пропуск слишком старого поста", "published_at", post.PublishedAt)
+				continue
+			}
+
+			hackathon := parseWithAI(post, apiKey)
 			if hackathon == nil {
 				continue
 			}
@@ -96,8 +122,8 @@ func runScraper(apiKey string) {
 	slog.Info("Текущий цикл парсинга завершен!")
 }
 
-// scrapeChannel парсит Telegram Web Preview и извлекает тексты постов
-func scrapeChannel(channelName string) ([]string, error) {
+// scrapeChannel парсит Telegram Web Preview и извлекает тексты постов с датами
+func scrapeChannel(channelName string) ([]ScrapedPost, error) {
 	url := fmt.Sprintf("https://t.me/s/%s", channelName)
 
 	res, err := http.Get(url)
@@ -115,22 +141,43 @@ func scrapeChannel(channelName string) ([]string, error) {
 		return nil, err
 	}
 
-	var messages []string
+	var posts []ScrapedPost
 
-	doc.Find(".tgme_widget_message_text").Each(func(i int, s *goquery.Selection) {
-		text := strings.TrimSpace(s.Text())
+	doc.Find(".tgme_widget_message").Each(func(i int, s *goquery.Selection) {
+		textSelection := s.Find(".tgme_widget_message_text")
+		if textSelection.Length() == 0 {
+			return
+		}
+
+		text := strings.TrimSpace(textSelection.Text())
 		lowerText := strings.ToLower(text)
 
+		// Находим тег <time> с датой
+		timeAttr, exists := s.Find("time").Attr("datetime")
+		if !exists {
+			return
+		}
+
+		// Парсим дату стандарта ISO (напр. 2024-02-21T15:04:05+00:00)
+		publishedAt, err := time.Parse(time.RFC3339, timeAttr)
+		if err != nil {
+			return
+		}
+
+		// Оставляем только посты с 언급анием хакатонов
 		if strings.Contains(lowerText, "хакатон") || strings.Contains(lowerText, "hackathon") {
-			messages = append(messages, text)
+			posts = append(posts, ScrapedPost{
+				Text:        text,
+				PublishedAt: publishedAt,
+			})
 		}
 	})
 
-	return messages, nil
+	return posts, nil
 }
 
 // parseWithAI использует Gemini для извлечения структурированных данных из текста
-func parseWithAI(text, apiKey string) *models.Hackathon {
+func parseWithAI(post ScrapedPost, apiKey string) *models.Hackathon {
 	ctx := context.Background()
 
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
@@ -140,25 +187,22 @@ func parseWithAI(text, apiKey string) *models.Hackathon {
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.5-flash-lite") // Use latest flash model
+	model := client.GenerativeModel("gemini-2.5-flash-lite")
 	model.SetTemperature(0.1)
 	model.ResponseMIMEType = "application/json"
 
-	prompt := fmt.Sprintf(`
-	Проанализируй текст анонса IT-мероприятия. 
-	Найди в нем детали хакатона и верни СТРОГО валидный JSON-объект без маркдауна (без блоков форматирования markdown) со следующими ключами:
-	- "title" (строка, название хакатона)
-	- "date" (строка, даты проведения)
-	- "format" (строка, строго "ОФЛАЙН" или "ОНЛАЙН", или "ОФЛАЙН/ОНЛАЙН")
-	- "city" (строка, город, если не указан - null)
-	- "ageLimit" (строка, возрастное ограничение, если нет - "Нет ограничений")
-	- "link" (строка, ссылка для регистрации, если нет - null)
-	
-	Текст анонса:
-	---
-	%s
-	---
-	Только чистый JSON.`, text)
+	currentDate := time.Now().Format("2006-01-02")
+	postDate := post.PublishedAt.Format("2006-01-02")
+
+	prompt := fmt.Sprintf(`Сегодняшняя дата: %s. Пост был опубликован: %s. 
+Проанализируй текст анонса. Если дедлайн регистрации или сам хакатон уже прошли относительно сегодняшней даты, верни статус 'DEAD'. Если он еще предстоит — 'LIVE'. Вычисли точный год, опираясь на дату публикации. 
+Верни СТРОГО JSON: title (string), date_str (string, например '21-22 февраля 2024'), deadline (string 'YYYY-MM-DD', если нет - пустая строка), format (ОФЛАЙН/ОНЛАЙН), city (string/null), ageLimit (string), link (string/null), status ('LIVE' или 'DEAD').
+
+Текст анонса:
+---
+%s
+---
+Только чистый JSON.`, currentDate, postDate, post.Text)
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
@@ -178,16 +222,41 @@ func parseWithAI(text, apiKey string) *models.Hackathon {
 	jsonText = strings.TrimSuffix(jsonText, "\n```")
 	jsonText = strings.TrimSpace(jsonText)
 
-	var hackathon models.Hackathon
-	if err := json.Unmarshal([]byte(jsonText), &hackathon); err != nil {
+	var aiResp AIResponse
+	if err := json.Unmarshal([]byte(jsonText), &aiResp); err != nil {
 		slog.Error("Парсинг JSON провален", "error", err, "raw_json", jsonText)
 		return nil
 	}
 
-	if hackathon.Title == "" || hackathon.Title == "null" {
+	if aiResp.Title == "" || aiResp.Title == "null" {
 		slog.Warn("ИИ вернул пустой Title, пропускаем пост")
 		return nil
 	}
 
-	return &hackathon
+	// Конвертация из AIResponse в models.Hackathon
+	hackathon := &models.Hackathon{
+		Title:    aiResp.Title,
+		Date:     aiResp.DateStr,
+		Format:   aiResp.Format,
+		AgeLimit: aiResp.AgeLimit,
+		Status:   aiResp.Status,
+	}
+
+	if aiResp.City != nil && *aiResp.City != "null" {
+		hackathon.City = *aiResp.City
+	}
+	if aiResp.Link != nil && *aiResp.Link != "null" {
+		hackathon.Link = *aiResp.Link
+	}
+
+	if aiResp.Deadline != "" && aiResp.Deadline != "null" {
+		parsedDeadline, err := time.Parse("2006-01-02", aiResp.Deadline)
+		if err == nil {
+			hackathon.Deadline = &parsedDeadline
+		} else {
+			slog.Warn("Ошибка парсинга Deadline от ИИ", "deadline", aiResp.Deadline, "error", err)
+		}
+	}
+
+	return hackathon
 }

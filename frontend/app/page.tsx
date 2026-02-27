@@ -11,23 +11,47 @@ interface Hackathon {
   city: string;
   ageLimit: string;
   link: string;
+  status: string;
 }
+
+const loadingMessages = [
+  "Гуглим интернет...",
+  "Читаем сайты...",
+  "Анализируем через ИИ..."
+];
 
 export default function Home() {
   const [query, setQuery] = useState('');
   const [hackathons, setHackathons] = useState<Hackathon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingText, setLoadingText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Функция загрузки данных с бэкенда
   const fetchHackathons = useCallback(async (searchQuery: string = '') => {
     setLoading(true);
     setError(null);
+    let intervalId: NodeJS.Timeout | null = null;
+
+    if (searchQuery) {
+      setLoadingText(loadingMessages[0]);
+      let index = 0;
+      intervalId = setInterval(() => {
+        index = (index + 1) % loadingMessages.length;
+        setLoadingText(loadingMessages[index]);
+      }, 1500); // Меняем текст каждые 1.5 секунды
+    }
+
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      // Увеличиваем таймаут для AI агента
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-      const res = await fetch(`http://localhost:8080/api/hackathons?q=${encodeURIComponent(searchQuery)}`, {
+      const endpoint = searchQuery
+        ? `http://localhost:8080/api/search?q=${encodeURIComponent(searchQuery)}`
+        : `http://localhost:8080/api/hackathons`;
+
+      const res = await fetch(endpoint, {
         signal: controller.signal,
         headers: {
           'Accept': 'application/json',
@@ -48,7 +72,9 @@ export default function Home() {
         setError('Не удалось загрузить данные серверов. Проверьте запущен ли бэкенд.');
       }
     } finally {
+      if (intervalId) clearInterval(intervalId);
       setLoading(false);
+      setLoadingText('');
     }
   }, []);
 
@@ -108,9 +134,17 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={loading}
-                className="px-8 py-3 bg-gradient-to-r from-[#00ff9d] to-[#00cc7d] hover:from-[#00ff9d] hover:to-[#00ff9d] text-black font-bold uppercase tracking-widest text-sm rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,255,157,0.2)] hover:shadow-[0_0_30px_rgba(0,255,157,0.4)] active:scale-95"
+                className="min-w-[140px] px-8 py-3 bg-gradient-to-r from-[#00ff9d] to-[#00cc7d] hover:from-[#00ff9d] hover:to-[#00ff9d] text-black font-bold uppercase tracking-widest text-sm rounded-xl transition-all duration-300 disabled:opacity-80 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,255,157,0.2)] hover:shadow-[0_0_30px_rgba(0,255,157,0.4)] active:scale-95"
               >
-                {loading && hackathons.length > 0 ? (
+                {loading && query ? (
+                  <div className="flex items-center justify-center gap-2 animate-pulse">
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span className="text-xs">{loadingText}</span>
+                  </div>
+                ) : loading ? (
                   <svg className="animate-spin h-5 w-5 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -151,10 +185,10 @@ export default function Home() {
               <p className="text-zinc-500 font-sans">Попробуйте изменить параметры поиска или ключевые слова</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {hackathons.map((h) => (
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-500 ${loading ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+              {hackathons.map((h, index) => (
                 <div
-                  key={h.id}
+                  key={h.id || `ai-result-${index}`}
                   className="group relative flex flex-col bg-[#0f0f1d]/80 backdrop-blur-md rounded-2xl border border-white/5 hover:border-[#00ff9d]/30 overflow-hidden transition-all duration-300 hover:shadow-[0_8px_30px_rgba(0,255,157,0.08)] hover:-translate-y-1"
                 >
                   {/* Top Highlight Line */}
@@ -162,7 +196,7 @@ export default function Home() {
 
                   <div className="p-6 flex-1 flex flex-col">
                     {/* Format and Date */}
-                    <div className="flex justify-between items-start mb-6">
+                    <div className="flex flex-wrap gap-2 items-center mb-6">
                       <span className={`px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded-md border backdrop-blur-sm
                         ${h.format.includes('Онлайн')
                           ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
@@ -171,7 +205,12 @@ export default function Home() {
                       >
                         {h.format}
                       </span>
-                      <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400 font-sans bg-white/5 px-2.5 py-1 rounded-md border border-white/5">
+                      {h.status === 'DEAD' && (
+                        <span className="px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded-md border bg-red-500/10 text-red-400 border-red-500/20 backdrop-blur-sm">
+                          Завершено
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400 font-sans bg-white/5 px-2.5 py-1 rounded-md border border-white/5 ml-auto">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
                           <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
                         </svg>
