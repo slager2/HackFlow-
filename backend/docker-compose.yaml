@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15
+    container_name: hackflow-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: hackflow_user
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: hackflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   backend:
     build:
       context: .
@@ -9,5 +22,12 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
+    depends_on:
+      - db # Бэкенд ждет, пока запустится база
+    env_file:
+      - .env
     environment:
-      - GIN_MODE=release # Включаем production режим для Gin
+      - GIN_MODE=release
+
+volumes:
+  pgdata:

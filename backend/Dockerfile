@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Собираем минимальный бинарник
-RUN CGO_ENABLED=0 GOOS=linux go build -o main main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api
 
 # Production stage (легковесный образ)
 FROM alpine:latest
