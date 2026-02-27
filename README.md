@@ -1,101 +1,231 @@
-# HackFlow API (Backend)
+# 🚀 HackFlow — AI-Powered Hackathon Aggregator
 
-The backend service for the **HackFlow** project — an AI-aggregator for IT events and hackathons. Built with Go 1.22+, Gin, and PostgreSQL.
+<div align="center">
 
-## 🚀 Overview
+**HackFlow** — платформа для поиска IT-мероприятий и хакатонов в Казахстане.  
+Никаких галлюцинаций — только проверенные данные из Telegram-каналов и веб-поиска в реальном времени.
 
-The backend is built using a clean, layered architecture and provides a REST API for the Next.js frontend to fetch verified (non-hallucinated) hackathons.
+[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://golang.org)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
+[![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-4285F4?logo=google&logoColor=white)](https://ai.google.dev)
 
-### Tech Stack
-- **Go 1.22+**: Core language.
-- **Gin**: HTTP web framework for routing and middleware.
-- **GORM (PostgreSQL)**: ORM library for database interactions and migrations.
-- **Docker & Docker Compose**: Containerization and local development environment.
-- **slog**: Native Go structured logging.
+</div>
 
-## 📂 Project Structure
+---
 
-```text
-backend/
-├── cmd/
-│   └── api/
-│       └── main.go         # Application entrypoint
-├── internal/
-│   ├── config/             # Environment configuration (godotenv)
-│   ├── database/           # PostgreSQL connection and auto-migrations
-│   ├── handlers/           # Gin HTTP route handlers
-│   ├── logger/             # Structured logging configuration
-│   └── models/             # Database schemas (GORM models)
-├── .env                    # Environment variables (ignored in version control)
-├── docker-compose.yaml     # Container orchestration (API + PostgreSQL)
-├── Dockerfile              # Multi-stage build for Go binary
-└── go.mod & go.sum         # Go module dependencies
+## ✨ Ключевые фичи
+
+| Фича | Описание |
+|------|----------|
+| 🤖 **AI Web-Agent** | Поиск хакатонов в реальном времени через Tavily Search + Gemini RAG |
+| 📡 **Telegram Scraper** | Автопарсинг 8 Telegram-каналов каждые 6 часов |
+| 🧠 **Anti-Hallucination** | Даты берутся напрямую из HTML, а не генерируются ИИ |
+| 🇰🇿 **Kazakhstan-Aware** | Национальные ивенты автоматически привязываются к Астане и Алматы |
+| 🏷️ **Статусы LIVE/DEAD** | Система автоматически помечает прошедшие мероприятия |
+
+---
+
+## 🏗️ Архитектура
+
+```
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────┐
+│  Next.js 16     │────▶│  Go API (Gin)        │────▶│ PostgreSQL  │
+│  Frontend       │     │  :8080               │     │ :5432       │
+│  :3000          │     ├──────────────────────┤     └─────────────┘
+└─────────────────┘     │  GET /api/hackathons │            ▲
+                        │  GET /api/search     │            │
+                        └──────────────────────┘            │
+                                                            │
+                        ┌──────────────────────┐            │
+                        │  Telegram Scraper    │────────────┘
+                        │  (Background Worker) │
+                        │  Runs every 6 hours  │
+                        └──────────────────────┘
 ```
 
-## 🛠 Prerequisites
+---
 
-- Docker Desktop installed and running.
-- (Optional) Go 1.22+ installed locally if you want to run it without Docker.
+## 📂 Структура проекта
 
-## ⚙️ Configuration
+```
+HackFlow/
+├── frontend/                    # Next.js 16 (App Router + Tailwind)
+│   └── app/
+│       ├── page.tsx             # Главная страница с поиском
+│       ├── layout.tsx           # Root layout
+│       └── globals.css          # Глобальные стили
+│
+├── backend/
+│   ├── cmd/
+│   │   ├── api/main.go          # REST API сервер
+│   │   └── scraper/main.go      # Telegram-парсер
+│   ├── internal/
+│   │   ├── config/              # Конфигурация (.env)
+│   │   ├── database/            # PostgreSQL + GORM миграции
+│   │   ├── handlers/            # HTTP-обработчики
+│   │   │   ├── hackathon.go     # GET /api/hackathons (БД)
+│   │   │   └── ai_search.go     # GET /api/search (Tavily + Gemini)
+│   │   ├── logger/              # Structured logging (slog)
+│   │   └── models/              # GORM-модели
+│   ├── docker-compose.yaml      # Оркестрация всех сервисов
+│   ├── Dockerfile               # Backend API
+│   ├── Dockerfile.scraper       # Scraper worker
+│   └── .env                     # API ключи и креды БД
+│
+└── README.md
+```
 
-Create a `.env` file in the `backend/` directory based on the following template. Since we are using Docker Compose, we connect to the PostgreSQL service named `db` (or `host.docker.internal` if testing against a host DB).
+---
+
+## ⚙️ Быстрый старт
+
+### Требования
+- **Docker Desktop** (обязательно)
+- **Node.js 18+** (для фронтенда)
+- API ключи: **Gemini** и **Tavily**
+
+### 1. Клонируй репозиторий
+
+```bash
+git clone https://github.com/slager2/HackFlow-.git
+cd HackFlow-
+```
+
+### 2. Настрой переменные окружения
+
+Создай файл `backend/.env`:
 
 ```env
-# Example .env configuration
-DB_HOST=host.docker.internal
+DB_HOST=db
 DB_USER=hackflow_user
 DB_PASSWORD=supersecretpassword
 DB_NAME=hackflow
 DB_PORT=5432
 PORT=8080
+
+GEMINI_API_KEY=your_gemini_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
-## 🚀 Running the project
-
-The easiest way to run the entire backend infrastructure (Go API and PostgreSQL database) is using Docker Compose:
-
-1. Open your terminal in the `backend` directory.
-2. Run the following command:
+### 3. Запусти бэкенд (Docker)
 
 ```bash
-docker-compose up -d --build
+cd backend
+docker-compose up --build
 ```
 
-This will:
-- Pull the PostgreSQL image and start the database.
-- Build the Go application into a lightweight Alpine image.
-- Start the API backend on port `8080`.
+Это поднимет **3 контейнера**:
+- `hackflow-postgres` — база данных
+- `hackflow-backend` — REST API на порту `8080`
+- `hackflow-scraper` — фоновый парсер Telegram
 
-**To stop the containers:**
+### 4. Запусти фронтенд
+
 ```bash
-docker-compose down
+cd frontend
+npm install
+npm run dev
 ```
+
+Открой [http://localhost:3000](http://localhost:3000) в браузере.
+
+---
 
 ## 🌐 API Endpoints
 
 ### `GET /api/hackathons`
 
-Fetches a list of IT events.
+Возвращает хакатоны из локальной базы данных (собранные скрапером).
 
-**Query Parameters:**
-- `q` (optional): Case-insensitive search query to filter events by `title` or `city`.
+| Параметр | Тип | Описание |
+|----------|-----|----------|
+| `q` | string (optional) | Поиск по названию или городу (ILIKE) |
 
-**Response (JSON):**
+### `GET /api/search`
+
+**AI Web-Agent** — ищет хакатоны в интернете через Tavily и анализирует результаты через Gemini.
+
+| Параметр | Тип | Описание |
+|----------|-----|----------|
+| `q` | string (required) | Поисковый запрос пользователя |
+
+**Пример ответа:**
 
 ```json
 [
   {
-    "id": 1,
-    "CreatedAt": "2026-02-27T00:00:00Z",
-    "UpdatedAt": "2026-02-27T00:00:00Z",
-    "DeletedAt": null,
-    "title": "Decentrathon",
-    "date": "15 Марта 2026",
-    "format": "Офлайн",
+    "title": "Децентратон 5.0",
+    "date": "Даты уточняются",
+    "deadline": null,
+    "format": "ОФЛАЙН/ОНЛАЙН",
     "city": "Астана",
-    "ageLimit": "18+",
-    "link": "https://decentrathon.io"
+    "ageLimit": "Нет ограничений",
+    "link": "decentrathon.ai",
+    "status": "LIVE"
   }
 ]
 ```
+
+---
+
+## 📡 Telegram Scraper
+
+Парсер автоматически мониторит **8 каналов** каждые 6 часов:
+
+| Канал | Тематика |
+|-------|----------|
+| `astanahub` | Astana Hub — IT-хаб Казахстана |
+| `uppertunity` | IT-возможности и конкурсы |
+| `nuris_nu` | Назарбаев Университет |
+| `terriconvalley` | Terricon Valley |
+| `bluescreenkz` | BlueScreen KZ |
+| `kolesa_team` | Kolesa Group |
+| `tce_kz` | Tech Community Events |
+| `hackathons_ru` | Хакатоны СНГ |
+
+### Как работает:
+1. Парсит HTML веб-версии Telegram (`t.me/channel`)
+2. Извлекает **точную дату** публикации из тега `<time>`
+3. Фильтрует посты старше 2 месяцев
+4. Отправляет текст в **Gemini** с контекстом даты
+5. Сохраняет структурированные данные в PostgreSQL
+
+---
+
+## 🛡️ Anti-Hallucination система
+
+| Проблема | Решение |
+|----------|---------|
+| ИИ придумывает даты (2026 для старых постов) | Дата берётся из HTML `<time datetime="...">` |
+| Старые посты попадают в базу | Фильтр: посты > 2 месяцев отсеиваются |
+| ИИ не знает текущую дату | В промпт передаётся `time.Now()` |
+| Статус LIVE/DEAD неверный | Динамическая проверка при каждом API-запросе |
+
+---
+
+## 🔧 Tech Stack
+
+| Компонент | Технология |
+|-----------|-----------|
+| Backend API | Go 1.22+, Gin, GORM |
+| Frontend | Next.js 16, React 19, Tailwind CSS |
+| Database | PostgreSQL 15 |
+| AI Model | Gemini 2.5 Flash |
+| Web Search | Tavily Search API |
+| HTML Parser | goquery |
+| Containerization | Docker, Docker Compose |
+| Logging | slog (structured) |
+
+---
+
+## 👤 Автор
+
+**slager2** — [GitHub](https://github.com/slager2)
+
+---
+
+<div align="center">
+  <sub>Built with 🤖 AI and ☕ coffee in Kazakhstan</sub>
+</div>
