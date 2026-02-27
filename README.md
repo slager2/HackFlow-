@@ -219,13 +219,3 @@ npm run dev
 | Logging | slog (structured) |
 
 ---
-
-## 👤 Автор
-
-**slager2** — [GitHub](https://github.com/slager2)
-
----
-
-<div align="center">
-  <sub>Built with 🤖 AI and ☕ coffee in Kazakhstan</sub>
-</div>
