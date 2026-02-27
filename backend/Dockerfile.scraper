@@ -10,19 +10,17 @@ RUN go mod download
 # Копируем исходный код
 COPY . .
 
-# Собираем минимальный бинарник
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api
+# Собираем минимальный бинарник для парсера
+RUN CGO_ENABLED=0 GOOS=linux go build -o scraper ./cmd/scraper
 
-# Production stage (легковесный образ)
+# Production stage
 FROM alpine:latest
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
 # Копируем готовый бинарник из стадии сборки
-COPY --from=builder /app/main .
+COPY --from=builder /app/scraper .
 
-EXPOSE 8080
-
-# Запускаем приложение
-CMD ["./main"]
+# Запускаем скрипт-дэмон
+CMD ["./scraper"]
