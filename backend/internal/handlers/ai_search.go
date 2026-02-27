@@ -46,6 +46,18 @@ type TavilyResponse struct {
 	} `json:"results"`
 }
 
+// AIHackathon — облегченная структура для ответов от ИИ (без time.Time)
+type AIHackathon struct {
+	Title    string  `json:"title"`
+	Date     string  `json:"date"`
+	Deadline *string `json:"deadline"`
+	Format   string  `json:"format"`
+	City     string  `json:"city"`
+	AgeLimit string  `json:"ageLimit"`
+	Link     *string `json:"link"`
+	Status   string  `json:"status"`
+}
+
 // SearchAI выполняет поиск в реальном времени через Tavily + Gemini
 func (h *SearchAIHandler) SearchAI(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
@@ -65,10 +77,10 @@ func (h *SearchAIHandler) SearchAI(c *gin.Context) {
 	// 1. Поиск в интернете через Tavily
 	reqBody := TavilyRequest{
 		APIKey:        h.Config.TavilyAPIKey,
-		Query:         "хакатоны IT мероприятия " + query,
-		SearchDepth:   "basic",
+		Query:         fmt.Sprintf("Hackathons IT events in Kazakhstan %s", query),
+		SearchDepth:   "advanced",
 		IncludeAnswer: false,
-		MaxResults:    3,
+		MaxResults:    5,
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)
@@ -127,22 +139,29 @@ func (h *SearchAIHandler) SearchAI(c *gin.Context) {
 	model.ResponseMIMEType = "application/json"
 
 	currentDate := time.Now().Format("2006-01-02")
-	prompt := fmt.Sprintf(`Сегодняшняя дата: %s. 
-Вот результаты из интернета по запросу '%s': 
+	prompt := fmt.Sprintf(`Сегодняшняя дата: %s.
+Пользователь ищет: '%s'.
+Вот сырые тексты из интернета (они могут быть на английском или русском):
 %s
 
-Найди здесь реальные хакатоны, конкурсы или IT-ивенты и верни массив JSON. Если ничего не найдено, верни пустой массив [].
-Структура одного объекта: 
-- title (строка)
-- date (строка)
+Твоя задача — извлечь IT-мероприятия. ВАЖНЫЕ ПРАВИЛА ДЛЯ КАЗАХСТАНА:
+- Если ивент имеет статус 'National' (Национальный) или проходит в '20+ cities' (например, Decentrathon), АВТОМАТИЧЕСКИ считай, что он проходит в Астане и Алматы. Обязательно добавляй его в ответ!
+- Переводи названия городов на русский (Astana -> Астана, Almaty -> Алматы).
+- Если точных дат нет, пиши 'Даты уточняются'.
+- Если текст на английском, переведи суть и верни JSON на русском.
+- Если ничего не найдено, верни пустой массив [].
+
+Верни массив JSON. Структура одного объекта:
+- title (строка, на русском)
+- date (строка, на русском)
 - deadline (строка формата YYYY-MM-DD или null)
 - format (строка: строго ОФЛАЙН или ОНЛАЙН, или ОФЛАЙН/ОНЛАЙН)
-- city (строка или null)
-- ageLimit (строка)
-- link (строка или null)
-- status (строка: LIVE, если дедлайн не прошел относительно сегодняшней даты, иначе DEAD)
+- city (строка на русском или null)
+- ageLimit (строка, например "Нет ограничений")
+- link (строка URL или null)
+- status (строка: LIVE если дедлайн не прошел относительно сегодняшней даты, иначе DEAD)
 
-Только чистый JSON массив, без маркдауна.`, currentDate, query, webContext)
+Только чистый JSON массив.`, currentDate, query, webContext)
 
 	slog.Debug("Sending aggregated results to Gemini...")
 	aiResp, err := model.GenerateContent(ctx, genai.Text(prompt))
@@ -176,13 +195,15 @@ func (h *SearchAIHandler) SearchAI(c *gin.Context) {
 	slog.Debug("Tavily context sent to Gemini", "webContext", webContext)
 	slog.Debug("Cleaned JSON ready for parsing", "jsonText", jsonText)
 
-	// Декодируем прямо в Hackathon. (В данном контексте мы не парсим deadline в БД)
-	var hackathons []models.Hackathon
+	// Декодируем в облегченную структуру (без time.Time для deadline)
+	var hackathons []AIHackathon
 	if err := json.Unmarshal([]byte(jsonText), &hackathons); err != nil {
 		slog.Error("JSON Unmarshal failed", "error", err, "raw_json", jsonText)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse AI response"})
 		return
 	}
+
+	slog.Info("AI Search completed successfully", "results_count", len(hackathons))
 
 	// Возвращаем результаты (кодом 200). В БД не сохраняем!
 	c.JSON(http.StatusOK, hackathons)
